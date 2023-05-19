@@ -17,7 +17,7 @@ def g_delta(kh, ch):
 
     b0 = 0.75 * pow(BETA_MT, 4) / pow(BETA_M, 3)
 
-    # function f, solution to differential equation (see eq. (A 1) from [1])
+    # function f, solution to differential equation
     def f(x, y, z):
         return np.divide(
             1 - np.power(x, 3) - 1.5 * np.multiply(y, 1 - np.power(x, 2)) + 3 * np.multiply(np.power(y, 2), 1 - x) -
@@ -34,7 +34,7 @@ def g_delta(kh, ch):
             z
         )
 
-    # functions C1 and C2 (see eq. (A 2) from [1])
+    # functions C1 and C2
     def c1(x):
         return np.divide(np.multiply(np.tan(np.pi * x), 4 * (1 - 2 * x)), np.multiply(x, 1 - x))
 

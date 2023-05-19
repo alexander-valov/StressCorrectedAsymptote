@@ -9,7 +9,30 @@ FloatOrSequence = Union[float, Sequence[float]]
 
 
 class WidthDimless(object):
+    """
+    Callable abstract class for computing a dimensionless tip width.
+    """
+
     def __call__(self, s: FloatOrSequence, chi: float, layers_pos: FloatOrSequence, delta_sigma: FloatOrSequence):
+        """
+        Computes dimensionless tip width at the given distance to the fracture tip.
+
+        Parameters
+        ----------
+        s : float or array_like
+            Dimensionless distance to the fracture tip.
+        chi : float
+            Dimensionless leak-off parameter.
+        layers_pos : float or array_like
+            Dimensionless position of the stress layer.
+        delta_sigma : float or array_like
+            Dimensionless amplitude of the stress barrier.
+
+        Returns
+        -------
+        result : float or array_like
+            Dimensionless tip width.
+        """
         ss = np.atleast_1d(s)
         layers_pos = np.atleast_1d(layers_pos)
         delta_sigma = np.atleast_1d(delta_sigma)
@@ -22,17 +45,74 @@ class WidthDimless(object):
 
 
 class ToughnessCorrectedDimless(WidthDimless):
+    """
+    Dimensionless toughness-corrected tip asymptote.
+
+    The toughness-corrected approach, utilizes the universal asymptotic solution
+    and the concept of an effective toughness, which is calculated using the toughness-dominated
+    asymptote and stress intensity factor correction due to stress layers.
+    The implicit form equation is solved using Levenberg-Marquardt method.
+    """
+
     def __init__(self, n_stress_iter: int = 1, tol: float = 1e-6):
+        """
+        Initializes dimensionless toughness-corrected tip asymptote.
+
+        Parameters
+        ----------
+        n_stress_iter : int, default: 1
+            A number of divisions of continuation parameter. To improve stability
+            and ensure convergence the continuation method is applied. The amplitude
+            of the stress barriers is effectively reduced by multiplying at factor
+            ``(i + 1) / n_stress_iter``, where ``i`` varies from 0 to ``n_stress_iter - 1``.
+        tol : float, default: 1e-6
+            Tolerance for root-finding termination.
+        """
         super().__init__()
 
         self.n_stress_iter = max(1, n_stress_iter)
         self.tol = tol
 
     @staticmethod
-    def implicit_form(s: np.ndarray, w: np.ndarray, chi: float, layers_pos: np.ndarray, delta_sigma: np.ndarray):
-        s_hat = s / np.power(w, 3)
-        k_hat = (1 + utils.g_sigma(s, layers_pos, delta_sigma)) / w
-        c_hat = chi / w
+    def implicit_form(
+        s: FloatOrSequence, w: FloatOrSequence, chi: float, layers_pos: FloatOrSequence, delta_sigma: FloatOrSequence
+    ):
+        """
+        Computes the implicit form of the dimensionless toughness-corrected asymptote.
+
+        The implicit form takes the following form ``s_hat - g_delta(k_hat, c_hat)``.
+        The definition of the above parameters can be found in [1]_.
+        Note, that in the absence of stress layers, this asymptote reduces to
+        the multiscale universal asymptotic solution [1]_.
+
+        Parameters
+        ----------
+        s : float or array_like
+            Dimensionless distance to the fracture tip.
+        w : float or array_like
+            Dimensionless fracture width at `s`.
+        chi : float
+            Dimensionless leak-off parameter.
+        layers_pos : float or array_like
+            Dimensionless position of the stress layer.
+        delta_sigma : float or array_like
+            Dimensionless amplitude of the stress barrier.
+
+        Returns
+        -------
+        val : float or array_like
+            Implicit form of the dimensionless toughness-corrected asymptote
+            computed for the given parameters.
+
+        References
+        ----------
+        .. [1] E.V. Dontsov and A.P. Peirce.
+           2017. A multiscale Implicit Level Set Algorithm (ILSA) to model hydraulic fracture
+           propagation incorporating combined viscous, toughness, and leak-off asymptotics.
+        """
+        s_hat = np.divide(s, np.power(w, 3))
+        k_hat = np.divide(1 + utils.g_sigma(s, layers_pos, delta_sigma), w)
+        c_hat = np.divide(chi, w)
         return s_hat - utils.g_delta(k_hat, c_hat)
 
     def _call_impl(self, s: np.ndarray, chi: float, layers_pos: np.ndarray, delta_sigma: np.ndarray):
@@ -44,7 +124,7 @@ class ToughnessCorrectedDimless(WidthDimless):
             # Compute continuation parameter for stress
             stress_mult = (i + 1) / self.n_stress_iter
 
-            # Compute width for the current stress_mult
+            # Compute width for the current stress_mult by solving implicit form equation
             w0 = sp_opt.root(
                 lambda w: self.implicit_form(s, w, chi, layers_pos, stress_mult * delta_sigma),
                 x0=w0, method='lm', options={'xtol': self.tol}
@@ -54,11 +134,33 @@ class ToughnessCorrectedDimless(WidthDimless):
 
 
 class ODEDimless(WidthDimless):
+    """
+    Dimensionless ODE-based tip asymptote.
+
+    The ODE tip asymptote is based on the ordinary differential equation (ODE)
+    approximation of the non-singular integral formulation for the problem
+    of a semi-infinite hydraulic fracture propagating in a permeable elastic medium
+    with stress layers.
+    The initial value problem is solved explicit Dormand-Prince 5(4) method.
+    """
+
     def __init__(self, grid_start: float = 1e-15, atol: float = 1e-10, rtol: float = 1e-6):
+        """
+        Initializes dimensionless ODE-based tip asymptote.
+
+        Parameters
+        ----------
+        grid_start : float, default: 1e-15
+            Dimensionless distance where the initial condition for initial value problem (IVP) is set.
+            To avoid singularity `grid_start` should be greater than 0 and, at the same time, `grid_start` << 1.
+        atol, rtol : float
+            Relative and absolute tolerances for the IVP solver. The solver keeps the local error
+            estimates less than ``atol + rtol * abs(y)``.
+        """
         super().__init__()
 
-        self.c1 = np.power(utils.BETA_M, 3) / 3
-        self.c2 = np.power(utils.BETA_MT, 4) / 4
+        self._c1 = np.power(utils.BETA_M, 3) / 3
+        self._c2 = np.power(utils.BETA_MT, 4) / 4
 
         self.grid_start = grid_start
         self.atol = atol
@@ -68,10 +170,10 @@ class ODEDimless(WidthDimless):
 
     def _rhs(self, s: np.ndarray, w: np.ndarray, chi: float, layers_pos: np.ndarray, delta_sigma: np.ndarray):
         g_sigma = utils.g_sigma(s, layers_pos, delta_sigma)
-        return self.c1 / np.power(w + g_sigma, 2) + chi * self.c2 / np.power(w + g_sigma, 3)
+        return self._c1 / np.power(w + g_sigma, 2) + chi * self._c2 / np.power(w + g_sigma, 3)
 
     def _solve_ode(self, s: float, chi: float, layers_pos: np.ndarray, delta_sigma: np.ndarray):
-        # Solve initial value problem for w_hat
+        # Solve non-singular ODE formulation for w_hat
         result = sp_int.solve_ivp(
             lambda ss, w: self._rhs(ss, w, chi, layers_pos, delta_sigma),
             t_span=(self.grid_start, s), y0=[1.0], atol=self.atol, rtol=self.rtol
@@ -79,15 +181,52 @@ class ODEDimless(WidthDimless):
         return result.y[0][-1]
 
     def _call_impl(self, s: np.ndarray, chi: float, layers_pos: np.ndarray, delta_sigma: np.ndarray):
+        # Solve non-singular ODE formulation for w_hat
         w_hat = self._solve_ode_vectorized(s=s, chi=chi, layers_pos=layers_pos, delta_sigma=delta_sigma)
+        # Perform change of variable
         return w_hat + utils.g_sigma(s, layers_pos, delta_sigma)
 
 
 class IntegralDimless(WidthDimless):
+    """
+    Dimensionless non-singular integral formulation for the fracture tip problem.
+
+    This asymptote involves solving the problem of a steadily propagating
+    semi-infinite hydraulic fracture with the presence of stress layers.
+
+    The integral is approximated using Simpson’s rule and the resulting system of
+    nonlinear algebraic equations is solved using Newton’s method. The infinite upper integration
+    limit is replaced by a sufficiently large finite number. The grid points used for
+    the integral approximation are distributed uniformly on a logarithmic scale with
+    thickening in the vicinity of stress layers.
+    """
+
     def __init__(
         self, grid_start: float = 1e-15, grid_stop: float = 1e18, grid_n: int = 1500,
         is_adaptive_grid=False, n_stress_iter: int = 1, tol: float = 1e-6
     ):
+        """
+        Initializes integral equation solver for the fracture tip problem.
+
+        Parameters
+        ----------
+        grid_start : float, default: 1e-15
+            Lower integration limit. To avoid singularity `grid_start`
+            should be greater than 0 and, at the same time, `grid_start` << 1.
+        grid_stop : float, default: 1e18
+            Upper integration limit. `grid_stop` should approximate infinite upper limit of integral.
+        grid_n: float, default: 1500
+            Number of points to approximate integral using Simpson's rule.
+        is_adaptive_grid : bool, default: False
+            Is apply mesh thickening in the vicinity of stress layers.
+        n_stress_iter : int, default: 1
+            A number of divisions of continuation parameter. To improve stability
+            and ensure convergence the continuation method is applied. The amplitude
+            of the stress barriers is effectively reduced by multiplying at factor
+            ``(i + 1) / n_stress_iter``, where ``i`` varies from 0 to ``n_stress_iter - 1``.
+        tol : float, default: 1e-6
+            Tolerance for Newton's method termination.
+        """
         super().__init__()
 
         self._grid_start = grid_start
@@ -105,12 +244,28 @@ class IntegralDimless(WidthDimless):
             self._update_grid(np.array([]))
 
     def _update_grid(self, layers_pos: np.ndarray):
+        # Compute grid nodes and weights for Simpson's rule
         self._grid = self.simpson_grid_adaptive(self._grid_start, self._grid_stop, self._grid_n, layers_pos)
         self._weights = self.simpson_weights(self._grid)
+
+        # Precompute the non-singular kernel
         self._g_matrix = utils.g_kernel(np.outer(1 / self._grid, self._grid))
 
     @staticmethod
     def simpson_weights(grid: np.ndarray):
+        """
+        Computes weights ``omega_i`` for Simpson's rule: ``INT(a, b) f(x) dx = SUM(0, N) omega_i * f(x_i)``.
+
+        Parameters
+        ----------
+        grid : ndarray
+            Integration nodes.
+
+        Returns
+        -------
+        omega : ndarray
+            Computed weights for Simpson's quadrature formula.
+        """
         h = np.diff(grid)
         omega = np.zeros_like(grid)
         n_simpson = grid.size
