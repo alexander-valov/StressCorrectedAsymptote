@@ -292,6 +292,8 @@ class IntegralDimless(WidthDimless):
         start: float, stop: float, n_min: int, layers_pos: np.ndarray,
         thickening: float = 2, deviation_ratio: float = 0.3
     ):
+        layers_pos_valid = np.maximum(start, layers_pos)
+
         log_start = np.log10(start)
         log_stop = np.log10(stop)
         log_h_max = (log_stop - log_start) / (n_min - 1)
@@ -301,7 +303,7 @@ class IntegralDimless(WidthDimless):
 
         # Density function of the grid nodes distribution
         def rho(x: float):
-            exp_term = np.sum(np.exp(-0.5 * np.power((x - np.log10(layers_pos)) / sigma, 2)))
+            exp_term = np.sum(np.exp(-0.5 * np.power((x - np.log10(layers_pos_valid)) / sigma, 2)))
             return 1 + thickening * np.minimum(1, exp_term)
 
         # Appending new nodes according to the density function

@@ -3,3 +3,4 @@ from .asymptote_dimless import (
     ODEDimless,
     IntegralDimless
 )
+from .asymptote_dimensional import StressCorrectedAsymptote

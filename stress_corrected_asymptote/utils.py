@@ -93,8 +93,8 @@ def g_kernel(t):
 
 
 def g_sigma(s, layers_pos, delta_sigma):
-    g_stress = g_kernel(np.outer(1 / s, layers_pos))
-    delta_sigma_s = delta_sigma * layers_pos
+    g_stress = g_kernel(np.outer(np.divide(1, s), layers_pos))
+    delta_sigma_s = np.multiply(delta_sigma, layers_pos)
     return (4 / np.pi) * g_stress.dot(delta_sigma_s)
 
 
