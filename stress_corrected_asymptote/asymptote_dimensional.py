@@ -167,6 +167,9 @@ class StressCorrectedAsymptote(object):
         mu_prime: float
             Scaled fluid viscosity. `mu_prime` equals 12 * mu,
             where mu is the fluid viscosity.
+        atol, rtol : float
+            Relative and absolute tolerances for the root finding. The solver keeps the local error
+            estimates less than ``atol + rtol * abs(y)``.
 
         Returns
         -------
